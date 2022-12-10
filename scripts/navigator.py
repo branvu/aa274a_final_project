@@ -14,6 +14,7 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 from controllers import PoseController, TrajectoryTracker, HeadingController
 from enum import Enum
+from frontier import frontier
 
 from dynamic_reconfigure.server import Server
 from asl_turtlebot.cfg import NavigatorConfig
@@ -286,6 +287,9 @@ class Navigator:
             V = 0.0
             om = 0.0
 
+        # Add computed control commands from obstacle avoidance controller
+        
+
         cmd_vel = Twist()
         cmd_vel.linear.x = V
         cmd_vel.angular.z = om
@@ -314,12 +318,29 @@ class Navigator:
             self.switch_mode(Mode.IDLE)
             return
 
+
         # Attempt to plan a path
         state_min = self.snap_to_grid((-self.plan_horizon, -self.plan_horizon))
         state_max = self.snap_to_grid((self.plan_horizon, self.plan_horizon))
         x_init = self.snap_to_grid((self.x, self.y))
         self.plan_start = x_init
         x_goal = self.snap_to_grid((self.x_g, self.y_g))
+
+        #Test Frontier
+        front = frontier(
+            state_min,
+            state_max,
+            x_init,
+            self.occupancy,
+            self.plan_resolution,
+        )
+        found, centroid = front.get_frontier_centroid()
+        if found:
+            x_goal = self.snap_to_grid(centroid)
+        else:
+            print("Frontier Count = 0")
+        #End Test Frontier
+
         problem = AStar(
             state_min,
             state_max,

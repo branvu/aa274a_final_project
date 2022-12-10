@@ -16,7 +16,7 @@ from asl_turtlebot.msg import DetectedObject, DetectedObjectList
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import math
-
+from std_msgs.msg import String
 # path to the trained conv net
 PATH_TO_LABELS = os.path.join(
     os.path.dirname(os.path.realpath(__file__)),
@@ -288,6 +288,16 @@ class Detector:
                 object_msg = DetectedObject()
                 object_msg.id = cl
                 object_msg.name = self.object_labels[cl]
+                special = {"cat", "dog", "elephant"}
+                if object_msg.name in special:
+                    # Publish meow woof or eeeeeeeeeeeeeeurrrrrrrrrr
+                    pub = rospy.Publisher("/detector/sounds", String, queue_size=10)
+                    if object_msg.name == "cat":
+                        pub.publish("meow")
+                    elif object_msg.name == "dog":
+                        pub.publish("woof")
+                    else:
+                        pub.publish("eeeeeeeeeeuuuuuuuuuurrrrrrrrrrrrr")
                 object_msg.confidence = sc
                 object_msg.distance = dist
                 object_msg.thetaleft = thetaleft

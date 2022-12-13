@@ -54,7 +54,7 @@ class Detector:
     def __init__(self):
         rospy.init_node("turtlebot_detector", anonymous=True)
         self.bridge = CvBridge()
-
+        print("STARTED!")
         self.detected_objects_pub = rospy.Publisher(
             "/detector/objects", DetectedObjectList, queue_size=10
         )
@@ -242,7 +242,7 @@ class Detector:
         (img_h, img_w, img_c) = img.shape
         # runs object detection in the image
         (boxes, scores, classes, num) = self.run_detection(img)
-
+        
         if num > 0:
             # create list of detected objects
             detected_objects = DetectedObjectList()
@@ -288,23 +288,26 @@ class Detector:
                 object_msg = DetectedObject()
                 object_msg.id = cl
                 object_msg.name = self.object_labels[cl]
-                special = {"cat", "dog", "elephant"}
-                if object_msg.name in special:
-                    # Publish meow woof or eeeeeeeeeeeeeeurrrrrrrrrr
-                    pub = rospy.Publisher("/detector/sounds", String, queue_size=10)
-                    if object_msg.name == "cat":
-                        pub.publish("meow")
-                    elif object_msg.name == "dog":
-                        pub.publish("woof")
-                    else:
-                        pub.publish("eeeeeeeeeeuuuuuuuuuurrrrrrrrrrrrr")
+                
                 object_msg.confidence = sc
                 object_msg.distance = dist
                 object_msg.thetaleft = thetaleft
                 object_msg.thetaright = thetaright
                 object_msg.corners = [ymin, xmin, ymax, xmax]
                 self.object_publishers[cl].publish(object_msg)
-
+                
+                special = {"cat", "dog", "elephant"}
+                if object_msg.name in special:
+                    # Publish meow woof or eeeeeeeeeeeeeeurrrrrrrrrr
+                    pub = rospy.Publisher("/detector/sounds", String, queue_size=10)
+                    animal_pub = rospy.Publisher("/detector/animals", DetectedObject, queue_size=10)
+                    if object_msg.name == "cat":
+                        pub.publish("meow")
+                    elif object_msg.name == "dog":
+                        pub.publish("woof")
+                    else:
+                        pub.publish("eeeeeeeeeeuuuuuuuuuurrrrrrrrrrrrr")
+                    animal_pub.publish(object_msg)
                 # add detected object to detected objects list
                 detected_objects.objects.append(self.object_labels[cl])
                 detected_objects.ob_msgs.append(object_msg)

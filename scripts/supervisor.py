@@ -9,6 +9,8 @@ from geometry_msgs.msg import Twist, PoseArray, Pose2D, PoseStamped
 from std_msgs.msg import Float32MultiArray, String
 import tf
 
+NUM_ANIMALS = 2
+
 class Mode(Enum):
     """State machine modes. Feel free to change."""
     IDLE = 1
@@ -17,6 +19,9 @@ class Mode(Enum):
     CROSS = 4
     NAV = 5
     MANUAL = 6
+    USER_INP = 7
+    EXPLORE = 8
+    WAYPOINT = 9
 
 
 class SupervisorParams:
@@ -61,6 +66,7 @@ class Supervisor:
         rospy.init_node('turtlebot_supervisor', anonymous=True)
         self.params = SupervisorParams(verbose=True)
 
+        self.animal_list = dict()
         # Current state
         self.x = 0
         self.y = 0
@@ -72,13 +78,13 @@ class Supervisor:
         self.theta_g = 0.0
 
         # Current mode
-        self.mode = Mode.NAV
+        self.mode = Mode.EXPLORE # NAV
         self.prev_mode = None  # For printing purposes
 
         ########## PUBLISHERS ##########
 
         # Command pose for controller
-        self.pose_goal_publisher = rospy.Publisher('/cmd_pose', Pose2D, queue_size=10)
+        self.pose_goal_publisher = rospy.Publisher('/cmd_nav', Pose2D, queue_size=10)
 
         # Command vel (used for idling)
         self.cmd_vel_publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
@@ -87,6 +93,9 @@ class Supervisor:
 
         # Stop sign detector
         rospy.Subscriber('/detector/stop_sign', DetectedObject, self.stop_sign_detected_callback)
+
+        # Animal detector
+        rospy.Subscriber('/detector/animals', DetectedObject, self.animal_sound)
 
         # High-level navigation pose
         rospy.Subscriber('/nav_pose', Pose2D, self.nav_pose_callback)
@@ -121,7 +130,6 @@ class Supervisor:
         """ callback for a pose goal sent through rviz """
         origin_frame = "/map" if self.params.mapping else "/odom"
         print("Rviz command received!")
-
         try:
             nav_pose_origin = self.trans_listener.transformPose(origin_frame, msg)
             self.x_g = nav_pose_origin.pose.position.x
@@ -143,6 +151,12 @@ class Supervisor:
         self.theta_g = msg.theta
         self.mode = Mode.NAV
 
+    def animal_sound(self, msg):
+        dist = msg.distance
+        # Coordinates of the object
+        x_coord = self.x + dist * np.cos(self.theta)
+        y_coord = self.y + dist * np.sin(self.theta)
+        self.animal_list[msg.name] = ((x_coord, y_coord), self.theta)
     def stop_sign_detected_callback(self, msg):
         """ callback for when the detector has found a stop sign. Note that
         a distance of 0 can mean that the lidar did not pickup the stop sign at all """
@@ -245,10 +259,40 @@ class Supervisor:
         ########## Code starts here ##########
         # TODO: Currently the state machine will just go to the pose without stopping
         #       at the stop sign.
-
+        print(self.mode)
+        if self.mode == Mode.EXPLORE:
+            # Travel to all waypoints
+            self.x_g = 1.83
+            self.y_g = 0.39
+            self.theta_g = -3.1
+            print("send to first ")
+            
+            rate = rospy.Rate(10)
+            while not self.close_to(self.x_g, self.y_g, self.theta_g):
+                self.nav_to_pose()
+                rate.sleep()
+            self.x_g = 2.23
+            self.y_g = 0.41
+            self.theta_g = -3.13
+            
+            while not self.close_to(self.x_g, self.y_g, self.theta_g):
+                self.nav_to_pose()
+                rate.sleep()
+            self.x_g = 3.04
+            self.y_g = 1.69
+            self.theta_g = 1.32
+            
+            while not self.close_to(self.x_g, self.y_g, self.theta_g):
+                self.nav_to_pose()
+                rate.sleep()
+            self.mode = Mode.IDLE
+        
         if self.mode == Mode.IDLE:
             # Send zero velocity
             self.stay_idle()
+            if len(self.animal_list) >= NUM_ANIMALS:
+                # Enough animals have been seen
+                self.mode = MODE.USER_INP
 
         elif self.mode == Mode.POSE:
             # Moving towards a desired pose
@@ -271,6 +315,25 @@ class Supervisor:
             else:
                 self.nav_to_pose()
 
+        elif self.mode == Mode.USER_INP:
+            print("Here are the animals we have identified. Return the indexes you want rescued space separated!")
+            animal_names = []
+            for i, animal in enumerate(self.animal_list):
+                print(i, animal, self.animal_list[animal])
+                animal_names.append(animal)
+
+            spaced_input = input()
+            animal_inds = spaced_input.split(' ')
+            for ind in animal_inds:
+                curr_animal = animal_names[int(ind)]
+                print("Going to:", curr_animal)
+                self.x_g, self.y_g, self.theta_g = self.animal_list[curr_animal][0][0], self.animal_list[curr_animal][0][1], self.animal_list[curr_animal][1]
+                self.nav_to_pose()
+                print("Visited:", curr_animal)
+            
+            self.x_g, self.y_g, self.theta_g = 0, 0, 0
+            self.nav_to_pose()
+
         else:
             raise Exception("This mode is not supported: {}".format(str(self.mode)))
 
@@ -285,4 +348,5 @@ class Supervisor:
 
 if __name__ == '__main__':
     sup = Supervisor()
+    input("Press enter to begin!")
     sup.run()

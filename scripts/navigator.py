@@ -67,23 +67,26 @@ class Navigator:
         self.current_plan_duration = 0
         self.plan_start = [0.0, 0.0]
 
+        self.avoid_obstacles = True
+        self.repulsion_vec = [0,0]
+
         # Robot limits
         self.v_max = 0.2  # maximum velocity
         self.om_max = 0.4  # maximum angular velocity
 
         self.v_des = 0.12  # desired cruising velocity
-        self.theta_start_thresh = 0.05  # threshold in theta to start moving forward when path-following
+        self.theta_start_thresh = 0.2  # threshold in theta to start moving forward when path-following
         self.start_pos_thresh = (
             0.2  # threshold to be far enough into the plan to recompute it
         )
 
         # threshold at which navigator switches from trajectory to pose control
-        self.near_thresh = 0.2
-        self.at_thresh = 0.02
+        self.near_thresh = 0.1 # 0.2 default
+        self.at_thresh = 0.005
         self.at_thresh_theta = 0.05
 
         # trajectory smoothing
-        self.spline_alpha = 0.15
+        self.spline_alpha = 0.30
         self.spline_deg = 3  # cubic spline
         self.traj_dt = 0.1
 
@@ -100,6 +103,9 @@ class Navigator:
             self.kpx, self.kpy, self.kdx, self.kdy, self.v_max, self.om_max
         )
         self.pose_controller = PoseController(
+            0.0, 0.0, 0.0, self.v_max, self.om_max
+        )
+        self.obstacle_controller = PoseController(
             0.0, 0.0, 0.0, self.v_max, self.om_max
         )
         self.heading_controller = HeadingController(self.kp_th, self.om_max)
@@ -122,8 +128,12 @@ class Navigator:
         rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
         rospy.Subscriber("/map_metadata", MapMetaData, self.map_md_callback)
         rospy.Subscriber("/cmd_nav", Pose2D, self.cmd_nav_callback)
+        rospy.Subscriber('/obstacle_repulsion', Twist, self.obstacle_callback)
 
         print("finished init")
+
+    def obstacle_callback(self, data):
+        self.repulsion_vec =[data.linear.x, data.angular.z]
 
     def dyn_cfg_callback(self, config, level):
         rospy.loginfo(
@@ -132,6 +142,9 @@ class Navigator:
         self.pose_controller.k1 = config["k1"]
         self.pose_controller.k2 = config["k2"]
         self.pose_controller.k3 = config["k3"]
+        self.obstacle_controller.k1 = config["k1"]
+        self.obstacle_controller.k2 = config["k2"]
+        self.obstacle_controller.k3 = config["k3"]
         return config
 
     def cmd_nav_callback(self, data):
@@ -175,7 +188,7 @@ class Navigator:
                 self.map_height,
                 self.map_origin[0],
                 self.map_origin[1],
-                7,
+                5,
                 self.map_probs,
             )
             if self.x_g is not None:
@@ -288,7 +301,12 @@ class Navigator:
             om = 0.0
 
         # Add computed control commands from obstacle avoidance controller
-        
+        if self.avoid_obstacles == True and self.mode == Mode.TRACK:
+            V_add = self.repulsion_vec[0]
+            om_add = self.repulsion_vec[1]
+            #print("Avoiding obstacles, adding V ", V_add, ", om, ", om_add)
+            V = V + V_add
+            om = om + om_add
 
         cmd_vel = Twist()
         cmd_vel.linear.x = V
@@ -324,22 +342,20 @@ class Navigator:
         state_max = self.snap_to_grid((self.plan_horizon, self.plan_horizon))
         x_init = self.snap_to_grid((self.x, self.y))
         self.plan_start = x_init
-        x_goal = self.snap_to_grid((self.x_g, self.y_g))
 
         #Test Frontier
-        front = frontier(
-            state_min,
-            state_max,
+        '''front = frontier(
             x_init,
-            self.occupancy,
-            self.plan_resolution,
+            self.occupancy
         )
-        found, centroid = front.get_frontier_centroid()
+        found, centroid = front.get_frontier_closest()
         if found:
-            x_goal = self.snap_to_grid(centroid)
+            self.x_g, self.y_g = centroid
         else:
-            print("Frontier Count = 0")
+            print("Frontier Not Found")'''
         #End Test Frontier
+
+        x_goal = self.snap_to_grid((self.x_g, self.y_g))
 
         problem = AStar(
             state_min,
@@ -349,6 +365,7 @@ class Navigator:
             self.occupancy,
             self.plan_resolution,
         )
+
 
         rospy.loginfo("Navigator: computing navigation plan")
         success = problem.solve()
@@ -383,14 +400,14 @@ class Navigator:
             t_init_align = abs(th_err / self.om_max)
             t_remaining_new = t_init_align + t_new[-1]
 
-            if t_remaining_new > t_remaining_curr:
+            '''if t_remaining_new > t_remaining_curr:
                 rospy.loginfo(
                     "New plan rejected (longer duration than current plan)"
                 )
                 self.publish_smoothed_path(
                     traj_new, self.nav_smoothed_path_rej_pub
                 )
-                return
+                return''' #New paths can be longer as new walls may be discovered
 
         # Otherwise follow the new plan
         self.publish_planned_path(planned_path, self.nav_planned_path_pub)

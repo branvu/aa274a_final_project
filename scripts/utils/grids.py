@@ -65,23 +65,91 @@ class StochOccupancyGrid2D(object):
 
         return (1. - p_total) < self.thresh
 
-    def is_unknown(self, state):
+    def is_free_grid(self, grid_x, grid_y, window_size = -1):
         # combine the probabilities of each cell by assuming independence
         # of each estimation
-        x, y = self.snap_to_grid(state)
-        grid_x = int((x - self.origin_x) / self.resolution)
-        grid_y = int((y - self.origin_y) / self.resolution)
-
-        half_size = int(round((self.window_size-1)/2))
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
         grid_x_lower = max(0, grid_x - half_size)
         grid_y_lower = max(0, grid_y - half_size)
         grid_x_upper = min(self.width, grid_x + half_size + 1)
         grid_y_upper = min(self.height, grid_y + half_size + 1)
 
         prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
-        p_avg= np.average(prob_window)
+        p_total = np.prod(1. - np.maximum(prob_window / 100., 0.))
 
-        return p_avg < 0
+        return (1. - p_total) < self.thresh
+
+    def is_free_grid_val(self, grid_x, grid_y, window_size = -1):
+        # combine the probabilities of each cell by assuming independence
+        # of each estimation
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+        p_total = np.prod(1. - np.maximum(prob_window / 100., 0.))
+
+        return (1. - p_total)
+
+    def is_unknown_grid(self, grid_x, grid_y, window_size = -1):
+        # combine the probabilities of each cell by assuming independence
+        # of each estimation
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+        p_avg = np.average(np.average(np.less(prob_window,0)))
+        return p_avg >= 0.5
+
+    def print_near(self, grid_x, grid_y, window_size = -1):
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+        
+        print(prob_window)
+
+    def find_nearest_free(self, grid_x, grid_y):
+        while(not self.is_free_grid(grid_x, grid_y)):
+            min_val = 1e16
+            min_dx = 0
+            min_dy = 0
+            for dx in range(-1,2):
+				for dy in range(-1,2):
+                    new_val = self.is_free_grid_val(grid_x + dx, grid_y + dy)
+					if (new_val < min_val):
+                        min_dx = dx
+                        min_dy = dy
+                        min_val = new_val
+            grid_x += min_dx
+            grid_y += min_dx
+        return (grid_x, grid_y)
+
+                        
 
     def is_(self, state):
         # combine the probabilities of each cell by assuming independence

@@ -2,7 +2,7 @@
 
 from enum import Enum
 from visualization_msgs.msg import Marker
-
+from time import sleep
 import rospy
 from asl_turtlebot.msg import DetectedObject, DetectedObjectList
 from gazebo_msgs.msg import ModelStates
@@ -448,9 +448,9 @@ class Supervisor:
 
             while(len(self.list_to_rescue) < 1):
                 rate.sleep()
-
+            # self.list_to_rescue = set(["cat", "dog", "elephant"])
+            # self.animal_list = {"cat": ((0.9, 2.1), 0), "dog": ((1.1, 2.1), 0), "elephant": ((1.7, 1), 0)}
             for animal_name in self.list_to_rescue:
-                print(animal_name, self.animal_list)
                 if animal_name in self.animal_list:
                     curr_animal = self.animal_list[animal_name]
                     print("Going to:", curr_animal)
@@ -458,9 +458,11 @@ class Supervisor:
                     while not self.close_to(self.x_g, self.y_g, self.theta_g):
                         self.nav_to_pose()
                         rate.sleep()
-                    rate.sleep(3000)
+                    rate2 = rospy.Rate(1)
+                    rate2.sleep(1)
+                    rate2.sleep(1)
+                    rate2.sleep(1)
                     print("Visited:", curr_animal)
-                    self.list_to_rescue.remove(animal_name)
             self.x_g, self.y_g, self.theta_g = 3.15, 1.6, 0
             print("going home!")
             while not self.close_to(self.x_g, self.y_g, self.theta_g):

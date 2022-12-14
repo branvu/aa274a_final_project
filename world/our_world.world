@@ -929,6 +929,64 @@
       </link>
       <pose frame=''>0.86 2.46 0.0 0.0 0.0 3.14159</pose>
     </model>
+<model name='sheep'>
+      <link name='link'>
+        <collision name='collision'>
+          <geometry>
+            <mesh>
+              <uri>model://sheep/meshes/sheep.dae</uri>
+              <scale>.08 .08 .17</scale>
+            </mesh>
+          </geometry>
+          <max_contacts>10</max_contacts>
+          <surface>
+            <contact>
+              <ode/>
+            </contact>
+            <bounce/>
+            <friction>
+              <torsional>
+                <ode/>
+              </torsional>
+              <ode>
+                <mu>0.2</mu>
+                <mu2>0.2</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name='visual'>
+          <geometry>
+            <mesh>
+              <uri>model://sheep/meshes/sheep.dae</uri>
+              <scale>.08 .08 .17</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <script>
+              <uri>model://sheep/materials/scripts</uri>
+              <uri>model://sheep/materials/textures</uri>
+              <name>sheep/Diffuse</name>
+            </script>
+          </material>
+        </visual>
+        <self_collide>0</self_collide>
+        <inertial>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+          <mass>1</mass>
+        </inertial>
+        <kinematic>0</kinematic>
+        <gravity>1</gravity>
+      </link>
+      <pose frame=''>0.16 0.09 0.0 0.0 0.0 3.14159</pose>
+    </model>
 
 <model name='dog'>
       <link name='link'>

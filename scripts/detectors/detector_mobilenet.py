@@ -2,6 +2,7 @@
 
 import rospy
 import os
+from visualization_msgs.msg import Marker
 
 # watch out on the order for the next two imports lol
 # from tf import TransformListener
@@ -308,6 +309,8 @@ class Detector:
                     else:
                         pub.publish("eeeeeeeeeeuuuuuuuuuurrrrrrrrrrrrr")
                     animal_pub.publish(object_msg)
+                    
+                   
                 # add detected object to detected objects list
                 detected_objects.objects.append(self.object_labels[cl])
                 detected_objects.ob_msgs.append(object_msg)

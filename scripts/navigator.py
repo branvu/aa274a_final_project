@@ -14,7 +14,7 @@ import scipy.interpolate
 import matplotlib.pyplot as plt
 from controllers import PoseController, TrajectoryTracker, HeadingController
 from enum import Enum
-from frontier import frontier
+#from frontier import frontier
 
 from dynamic_reconfigure.server import Server
 from asl_turtlebot.cfg import NavigatorConfig
@@ -59,7 +59,7 @@ class Navigator:
         self.occupancy_updated = False
 
         # plan parameters
-        self.plan_resolution = 0.1
+        self.plan_resolution = 0.05
         self.plan_horizon = 15
 
         # time when we started following the plan
@@ -75,18 +75,18 @@ class Navigator:
         self.om_max = 0.4  # maximum angular velocity
 
         self.v_des = 0.12  # desired cruising velocity
-        self.theta_start_thresh = 0.2  # threshold in theta to start moving forward when path-following
+        self.theta_start_thresh = 0.4  # default 0.2 threshold in theta to start moving forward when path-following
         self.start_pos_thresh = (
             0.2  # threshold to be far enough into the plan to recompute it
         )
 
         # threshold at which navigator switches from trajectory to pose control
-        self.near_thresh = 0.1 # 0.2 default
+        self.near_thresh = 0.2 # 0.2 default
         self.at_thresh = 0.005
         self.at_thresh_theta = 0.05
 
         # trajectory smoothing
-        self.spline_alpha = 0.30
+        self.spline_alpha = 0.05 # default .3
         self.spline_deg = 3  # cubic spline
         self.traj_dt = 0.1
 
@@ -161,7 +161,7 @@ class Navigator:
             self.y_g = data.y
             self.theta_g = data.theta
             self.replan()
-
+            print("Clicked on:", self.x_g, self.y_g, self.theta_g)
     def map_md_callback(self, msg):
         """
         receives maps meta data and stores it
@@ -188,13 +188,14 @@ class Navigator:
                 self.map_height,
                 self.map_origin[0],
                 self.map_origin[1],
-                5,
+                7,
                 self.map_probs,
             )
             if self.x_g is not None:
                 # if we have a goal to plan to, replan
-                rospy.loginfo("replanning because of new map")
-                self.replan()  # new map, need to replan
+                if self.mode == Mode.TRACK:
+                    rospy.loginfo("replanning because of new map")
+                    self.replan()  # new map, need to replan
 
     def shutdown_callback(self):
         """
@@ -288,6 +289,7 @@ class Navigator:
             V, om = self.pose_controller.compute_control(
                 self.x, self.y, self.theta, t
             )
+            #print("parking, om: ", om)
         elif self.mode == Mode.TRACK:
             V, om = self.traj_controller.compute_control(
                 self.x, self.y, self.theta, t
@@ -424,7 +426,7 @@ class Navigator:
 
         if not self.aligned():
             rospy.loginfo("Not aligned with start direction")
-            self.switch_mode(Mode.ALIGN)
+            self.switch_mode(Mode.ALIGN) 
             return
 
         rospy.loginfo("Ready to track")
@@ -463,7 +465,8 @@ class Navigator:
                     self.switch_mode(Mode.TRACK)
             elif self.mode == Mode.TRACK:
                 if self.near_goal():
-                    self.switch_mode(Mode.PARK)
+                    #self.switch_mode(Mode.PARK)
+                    self.switch_mode(Mode.IDLE)
                 elif not self.close_to_plan_start():
                     rospy.loginfo("replanning because far from start")
                     self.replan()
@@ -475,6 +478,7 @@ class Navigator:
             elif self.mode == Mode.PARK:
                 if self.at_goal():
                     # forget about goal:
+                    rospy.loginfo("At goal")
                     self.x_g = None
                     self.y_g = None
                     self.theta_g = None

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 
 from enum import Enum
+from visualization_msgs.msg import Marker
 
 import rospy
-from asl_turtlebot.msg import DetectedObject
+from asl_turtlebot.msg import DetectedObject, DetectedObjectList
 from gazebo_msgs.msg import ModelStates
 from geometry_msgs.msg import Twist, PoseArray, Pose2D, PoseStamped
 from std_msgs.msg import Float32MultiArray, String
+from frontier import frontier
+from nav_msgs.msg import OccupancyGrid, MapMetaData, Path
+from utils.grids import StochOccupancyGrid2D
 import tf
+import numpy as np
 
 NUM_ANIMALS = 2
 
@@ -38,8 +43,8 @@ class SupervisorParams:
         self.mapping = rospy.get_param("map")
 
         # Threshold at which we consider the robot at a location
-        self.pos_eps = rospy.get_param("~pos_eps", 0.1)
-        self.theta_eps = rospy.get_param("~theta_eps", 0.3)
+        self.pos_eps = rospy.get_param("~pos_eps", 0.4) # 0.1
+        self.theta_eps = rospy.get_param("~theta_eps", 3) # 0.3
 
         # Time to stop at a stop sign
         self.stop_time = rospy.get_param("~stop_time", 2.)
@@ -66,7 +71,9 @@ class Supervisor:
         rospy.init_node('turtlebot_supervisor', anonymous=True)
         self.params = SupervisorParams(verbose=True)
 
-        self.animal_list = dict()
+        self.animal_list = {"cat": (), "dog": (), "elephant": ()}
+        self.list_to_rescue = set()
+
         # Current state
         self.x = 0
         self.y = 0
@@ -80,6 +87,16 @@ class Supervisor:
         # Current mode
         self.mode = Mode.EXPLORE # NAV
         self.prev_mode = None  # For printing purposes
+
+        # map parameters
+        self.map_width = 0
+        self.map_height = 0
+        self.map_resolution = 0
+        self.map_origin = [0, 0]
+        self.map_probs = []
+        self.occupancy = None
+        self.occupancy_updated = False
+        self.plan_resolution = 0.1
 
         ########## PUBLISHERS ##########
 
@@ -99,6 +116,16 @@ class Supervisor:
 
         # High-level navigation pose
         rospy.Subscriber('/nav_pose', Pose2D, self.nav_pose_callback)
+
+        # Map for frontier
+        rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
+        rospy.Subscriber("/map_metadata", MapMetaData, self.map_md_callback)
+
+        # List of animals
+        rospy.Subscriber('/detector/animals', DetectedObject, self.animal_sound)
+
+        # List of animals to rescue
+        rospy.Subscriber('/list_to_rescue', DetectedObjectList, self.rescue_animals_callback)
 
         # If using gazebo, we have access to perfect state
         if self.params.use_gazebo:
@@ -130,6 +157,7 @@ class Supervisor:
         """ callback for a pose goal sent through rviz """
         origin_frame = "/map" if self.params.mapping else "/odom"
         print("Rviz command received!")
+        
         try:
             nav_pose_origin = self.trans_listener.transformPose(origin_frame, msg)
             self.x_g = nav_pose_origin.pose.position.x
@@ -142,7 +170,7 @@ class Supervisor:
             self.theta_g = euler[2]
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             pass
-
+        
         self.mode = Mode.NAV
 
     def nav_pose_callback(self, msg):
@@ -151,12 +179,53 @@ class Supervisor:
         self.theta_g = msg.theta
         self.mode = Mode.NAV
 
+    def rescue_animals_callback(self, msg):
+        for animal in msg.objects:
+            self.list_to_rescue.add(animal)
+
     def animal_sound(self, msg):
         dist = msg.distance
         # Coordinates of the object
-        x_coord = self.x + dist * np.cos(self.theta)
-        y_coord = self.y + dist * np.sin(self.theta)
+        thresh_dist = 0.5
+
+        angle = self.theta + (msg.thetaleft + msg.thetaright) / 2
+        
+        x_coord = self.x + dist * np.cos(angle) - thresh_dist * np.cos(angle)
+        y_coord = self.y + dist * np.sin(angle) - thresh_dist * np.cos(angle)
         self.animal_list[msg.name] = ((x_coord, y_coord), self.theta)
+        marker = Marker()
+        id_d = {"cat": 1, "dog": 2, "elephant":3}
+        vis_pub = rospy.Publisher('marker_topic', Marker, queue_size=10)
+
+        marker.header.frame_id = "map"
+        marker.header.stamp = rospy.Time()
+
+        # IMPORTANT: If you're creating multiple markers, 
+        #            each need to have a separate marker ID.
+        marker.id = id_d[msg.name]
+
+        marker.type = 2 # sphere
+
+        marker.pose.position.x = x_coord
+        marker.pose.position.y = y_coord
+        marker.pose.position.z = 1
+
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+
+        marker.scale.x = 10
+        marker.scale.y = 10
+        marker.scale.z = 10
+
+        marker.color.a = 1 # Don't forget to set the alpha!
+        marker.color.r = 50 *  marker.id
+        marker.color.g = 10 *  marker.id
+        marker.color.b = 100 *  marker.id
+         
+        vis_pub.publish(marker)
+
     def stop_sign_detected_callback(self, msg):
         """ callback for when the detector has found a stop sign. Note that
         a distance of 0 can mean that the lidar did not pickup the stop sign at all """
@@ -167,7 +236,48 @@ class Supervisor:
         # if close enough and in nav mode, stop
         if dist > 0 and dist < self.params.stop_min_dist and self.mode == Mode.NAV:
             self.init_stop_sign()
+    
+    def map_md_callback(self, msg):
+        """
+        receives maps meta data and stores it
+        """
+        self.map_width = msg.width
+        self.map_height = msg.height
+        self.map_resolution = msg.resolution
+        self.map_origin = (msg.origin.position.x, msg.origin.position.y)
 
+    def map_callback(self, msg):
+        """
+        receives new map info and updates the map
+        """
+        self.map_probs = msg.data
+        
+        # if we've received the map metadata and have a way to update it:
+        if (
+            self.map_width > 0
+            and self.map_height > 0
+            and len(self.map_probs) > 0
+        ):
+            self.occupancy = StochOccupancyGrid2D(
+                self.map_resolution,
+                self.map_width,
+                self.map_height,
+                self.map_origin[0],
+                self.map_origin[1],
+                7,
+                self.map_probs,
+            )
+            
+            #if self.x_g is not None:
+                # if we have a goal to plan to, replan
+            #    rospy.loginfo("replanning because of new map")
+            #    self.replan()  # new map, need to replan
+    
+    def snap_to_grid(self, x):
+        return (
+            self.plan_resolution * round(x[0] / self.plan_resolution),
+            self.plan_resolution * round(x[1] / self.plan_resolution),
+        )
 
     ########## STATE MACHINE ACTIONS ##########
 
@@ -261,32 +371,46 @@ class Supervisor:
         #       at the stop sign.
         print(self.mode)
         if self.mode == Mode.EXPLORE:
-            # Travel to all waypoints
-            self.x_g = 1.83
-            self.y_g = 0.39
-            self.theta_g = -3.1
-            print("send to first ")
-            
-            rate = rospy.Rate(10)
-            while not self.close_to(self.x_g, self.y_g, self.theta_g):
+            rate = rospy.Rate(100)
+            while np.average(np.less(self.occupancy.probs,0)) >= 0.05:
+                x_init = (self.x, self.y)
+                front = frontier(
+                    x_init,
+                    self.occupancy
+                )
+                found, centroid = front.get_frontier_closest()
+                if found:
+                    self.x_g, self.y_g = centroid
+                else:
+                    print("Frontier Not Found")
+                    break
+                rate = rospy.Rate(3)
                 self.nav_to_pose()
                 rate.sleep()
-            self.x_g = 2.23
-            self.y_g = 0.41
-            self.theta_g = -3.13
-            
+            print("EXIT")
+            print()
+            print()
+            print()
+            # WP1 = (1.944, 0.366, 3.11)
+            # WP2 = (2.296, 1.618, 1.577)
+            # self.x_g, self.y_g, self.theta_g = WP1
+            # while not self.close_to(self.x_g, self.y_g, self.theta_g):
+            #         self.nav_to_pose()
+            #         rate.sleep()
+                    
+            # self.x_g, self.y_g, self.theta_g = WP2
+            # while not self.close_to(self.x_g, self.y_g, self.theta_g):
+            #     self.nav_to_pose()
+            #     rate.sleep()
+
+            self.x_g, self.y_g, self.theta_g = 3.15, 1.6, 0
+            print("going home!")
             while not self.close_to(self.x_g, self.y_g, self.theta_g):
                 self.nav_to_pose()
+                #print("pos eps: ", self.params.pos_eps)
                 rate.sleep()
-            self.x_g = 3.04
-            self.y_g = 1.69
-            self.theta_g = 1.32
-            
-            while not self.close_to(self.x_g, self.y_g, self.theta_g):
-                self.nav_to_pose()
-                rate.sleep()
-            self.mode = Mode.IDLE
-        
+            self.mode = Mode.USER_INP
+            print("Switching mode to user input rescue time!")
         if self.mode == Mode.IDLE:
             # Send zero velocity
             self.stay_idle()
@@ -316,23 +440,41 @@ class Supervisor:
                 self.nav_to_pose()
 
         elif self.mode == Mode.USER_INP:
-            print("Here are the animals we have identified. Return the indexes you want rescued space separated!")
-            animal_names = []
-            for i, animal in enumerate(self.animal_list):
-                print(i, animal, self.animal_list[animal])
-                animal_names.append(animal)
+            print("Here are the animals we have identified:")
+            rate = rospy.Rate(10)
+            for animal in self.animal_list:
+                print(animal, self.animal_list[animal])
+            print("Please run ./request_publisher.py with the names of the animals to rescue.")
 
-            spaced_input = input()
-            animal_inds = spaced_input.split(' ')
-            for ind in animal_inds:
-                curr_animal = animal_names[int(ind)]
-                print("Going to:", curr_animal)
-                self.x_g, self.y_g, self.theta_g = self.animal_list[curr_animal][0][0], self.animal_list[curr_animal][0][1], self.animal_list[curr_animal][1]
+            while(len(self.list_to_rescue) < 1):
+                rate.sleep()
+
+            for animal_name in self.list_to_rescue:
+                print(animal_name, self.animal_list)
+                if animal_name in self.animal_list:
+                    curr_animal = self.animal_list[animal_name]
+                    print("Going to:", curr_animal)
+                    self.x_g, self.y_g, self.theta_g = curr_animal[0][0], curr_animal[0][1], curr_animal[1]
+                    while not self.close_to(self.x_g, self.y_g, self.theta_g):
+                        self.nav_to_pose()
+                        rate.sleep()
+                    rate.sleep(3000)
+                    print("Visited:", curr_animal)
+                    self.list_to_rescue.remove(animal_name)
+            self.x_g, self.y_g, self.theta_g = 3.15, 1.6, 0
+            print("going home!")
+            while not self.close_to(self.x_g, self.y_g, self.theta_g):
                 self.nav_to_pose()
-                print("Visited:", curr_animal)
-            
-            self.x_g, self.y_g, self.theta_g = 0, 0, 0
-            self.nav_to_pose()
+                print("pos eps: ", self.params.pos_eps)
+                rate.sleep()
+            # spaced_input = input()
+            # animal_inds = spaced_input.split(' ')
+            # for ind in animal_inds:
+            #     curr_animal = animal_names[int(ind)]
+            #     print("Going to:", curr_animal)
+            #     self.x_g, self.y_g, self.theta_g = self.animal_list[curr_animal][0][0], self.animal_list[curr_animal][0][1], self.animal_list[curr_animal][1]
+            #     self.nav_to_pose()
+            #     print("Visited:", curr_animal)
 
         else:
             raise Exception("This mode is not supported: {}".format(str(self.mode)))

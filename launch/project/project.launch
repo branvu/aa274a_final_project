@@ -10,8 +10,9 @@
     <arg name="model" default="asl_turtlebot"/>
     <arg name="sim" default="$(arg sim)"/>
   </include>
-      <node pkg="asl_turtlebot" type="detector_mobilenet.py" name="detector" output="screen" launch-prefix="gnome-terminal -- "/>
-<node pkg="asl_turtlebot" type="navigator.py" name="navigator" output="screen" launch-prefix="gnome-terminal -- "/>
+    <node pkg="asl_turtlebot" type="detector_mobilenet.py" name="detector" output="screen"/>
     <node pkg="asl_turtlebot" type="obstacle_avoidance.py" name="obstacle_avoidance" output="screen" launch-prefix="gnome-terminal -- "/>
+    <node pkg="asl_turtlebot" type="navigator.py" name="navigator" output="screen" launch-prefix="gnome-terminal -- "/>
+    <node pkg="asl_turtlebot" type="supervisor.py" name="supervisor" output="screen" launch-prefix="gnome-terminal -- "/>
 
 </launch>

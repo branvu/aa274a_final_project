@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import scipy.ndimage.filters
+from scipy import ndimage
 
 
 # A 2D state space grid with a set of rectangular obstacles. The grid is fully deterministic
@@ -33,7 +35,7 @@ class DetOccupancyGrid2D(object):
 
 class StochOccupancyGrid2D(object):
     def __init__(self, resolution, width, height, origin_x, origin_y,
-                window_size, probs, thresh=0.5):
+                window_size, probs, thresh=0.01):
         self.resolution = resolution
         self.width = width
         self.height = height
@@ -42,12 +44,89 @@ class StochOccupancyGrid2D(object):
         self.probs = np.reshape(np.asarray(probs), (height, width))
         self.window_size = window_size
         self.thresh = thresh
+        self.free_filter = np.ones((self.window_size, self.window_size)) / (self.window_size**2)
+        self.front_filter = np.array([
+            [0, -1, 0],
+            [-1, 100, -1],
+            [0, -1, 0]])
         
 
     def snap_to_grid(self, x):
         return (self.resolution*round(x[0]/self.resolution), self.resolution*round(x[1]/self.resolution))
 
+
     def is_free(self, state):
+        # combine the probabilities of each cell by assuming independence
+        # of each estimation
+        x, y = self.snap_to_grid(state)
+        grid_x = int(round((x - self.origin_x) / self.resolution))
+        grid_y = int(round((y - self.origin_y) / self.resolution))
+
+        half_size = int(round((self.window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+        p_total = np.average(np.maximum(prob_window / 100., 0.))
+
+        return p_total < self.thresh
+
+    def find_all_frontiers(self):
+        #must be transposed as matrix notation is [x,y]
+        ignore_unknown_map = np.transpose(np.maximum(self.probs / 100., 0.)) #all unknowns set to 0
+        ignore_fullness_map = np.transpose(np.minimum(self.probs, 0.)) #all knowns set to 0
+        
+        half_size = int(round((self.window_size-1)/2))
+        free_spaces = np.less(
+            ndimage.convolve(ignore_unknown_map, self.free_filter, mode='constant', cval=1.0),self.thresh)
+
+        front_spaces = np.greater(
+            ndimage.convolve(ignore_fullness_map, self.front_filter, mode='constant', cval=-1),0)
+        
+        front_map = free_spaces * front_spaces
+        return np.transpose((front_map).nonzero())
+
+
+    def is_free_grid(self, grid_x, grid_y, window_size = -1):
+        # combine the probabilities of each cell by assuming independence
+        # of each estimation
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+        p_total = np.average(np.maximum(prob_window / 100., 0.))
+
+        return p_total < self.thresh
+
+    def is_free_grid_val(self, grid_x, grid_y, window_size = -1):
+        # combine the probabilities of each cell by assuming independence
+        # of each estimation
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+        p_total = np.average(np.maximum(prob_window / 100., 0.))
+
+        return p_total < self.thresh
+
+
+    '''def is_free(self, state):
         # combine the probabilities of each cell by assuming independence
         # of each estimation
         x, y = self.snap_to_grid(state)
@@ -116,8 +195,14 @@ class StochOccupancyGrid2D(object):
 
         prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
         p_avg = np.average(np.average(np.less(prob_window,0)))
-        return p_avg >= 0.5
-
+        return p_avg >= 0.5'''
+    def print_near_float(self, state, window_size = -1):
+        x, y = self.snap_to_grid(state)
+        grid_x = int(round((x - self.origin_x) / self.resolution))
+        grid_y = int(round((y - self.origin_y) / self.resolution))
+        self.print_near(grid_x, grid_y, window_size)
+        
+    
     def print_near(self, grid_x, grid_y, window_size = -1):
         if window_size == -1:
             window_size = self.window_size
@@ -133,15 +218,45 @@ class StochOccupancyGrid2D(object):
         
         print(prob_window)
 
+    def convolve_near(self, grid_x, grid_y, window_size = -1):
+        if window_size == -1:
+            window_size = self.window_size
+        grid_x = int(grid_x)
+        grid_y = int(grid_y)
+        half_size = int(round((window_size-1)/2))
+        grid_x_lower = max(0, grid_x - half_size)
+        grid_y_lower = max(0, grid_y - half_size)
+        grid_x_upper = min(self.width, grid_x + half_size + 1)
+        grid_y_upper = min(self.height, grid_y + half_size + 1)
+        prob_window = self.probs[grid_y_lower:grid_y_upper, grid_x_lower:grid_x_upper]
+
+        ignore_unknown_map = np.maximum(prob_window / 100., 0.) #all unknowns set to 0
+        ignore_fullness_map = np.minimum(prob_window, 0.) #all knowns set to 0
+        
+        half_size = int(round((self.window_size-1)/2))
+        free_spaces = np.less(
+            ndimage.convolve(ignore_unknown_map, self.free_filter, mode='constant', cval=1.0),self.thresh)
+
+        front_spaces = np.greater(
+            ndimage.convolve(ignore_fullness_map, self.front_filter, mode='constant', cval=-1),0)
+        
+        front_map = free_spaces * front_spaces
+        print("filter \n", self.free_filter)
+        print("free spaces \n", free_spaces)
+        print("front spaces", front_spaces)
+        print("front map", front_map)
+        
+
     def find_nearest_free(self, grid_x, grid_y):
         while(not self.is_free_grid(grid_x, grid_y)):
+            print("Not free, walking to find free")
             min_val = 1e16
             min_dx = 0
             min_dy = 0
             for dx in range(-1,2):
-				for dy in range(-1,2):
+                for dy in range(-1,2):
                     new_val = self.is_free_grid_val(grid_x + dx, grid_y + dy)
-					if (new_val < min_val):
+                    if (new_val < min_val):
                         min_dx = dx
                         min_dy = dy
                         min_val = new_val

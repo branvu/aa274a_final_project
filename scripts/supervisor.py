@@ -27,6 +27,8 @@ class Mode(Enum):
     USER_INP = 7
     EXPLORE = 8
     WAYPOINT = 9
+    FINAL_RETURN = 10
+    DONE = 11
 
 
 class SupervisorParams:
@@ -43,7 +45,7 @@ class SupervisorParams:
         self.mapping = rospy.get_param("map")
 
         # Threshold at which we consider the robot at a location
-        self.pos_eps = rospy.get_param("~pos_eps", 0.4) # 0.1
+        self.pos_eps = rospy.get_param("~pos_eps", 0.15) # 0.1, works without pose at .4
         self.theta_eps = rospy.get_param("~theta_eps", 3) # 0.3
 
         # Time to stop at a stop sign
@@ -71,7 +73,7 @@ class Supervisor:
         rospy.init_node('turtlebot_supervisor', anonymous=True)
         self.params = SupervisorParams(verbose=True)
 
-        self.animal_list = {"cat": (), "dog": (), "elephant": ()}
+        self.animal_list = {"cat": (), "dog": (), "elephant": (), "bird": (), "giraffe": ()}
         self.list_to_rescue = set()
 
         # Current state
@@ -180,51 +182,55 @@ class Supervisor:
         self.mode = Mode.NAV
 
     def rescue_animals_callback(self, msg):
-        for animal in msg.objects:
-            self.list_to_rescue.add(animal)
+        if self.mode == Mode.USER_INP:
+            for animal in msg.objects:
+                self.list_to_rescue.add(animal)
 
     def animal_sound(self, msg):
-        dist = msg.distance
-        # Coordinates of the object
-        thresh_dist = 0.5
+        if self.mode == Mode.EXPLORE:
+            dist = msg.distance
+            # Coordinates of the object
+            thresh_dist = 0.5
 
-        angle = self.theta + (msg.thetaleft + msg.thetaright) / 2
-        
-        x_coord = self.x + dist * np.cos(angle) - thresh_dist * np.cos(angle)
-        y_coord = self.y + dist * np.sin(angle) - thresh_dist * np.cos(angle)
-        self.animal_list[msg.name] = ((x_coord, y_coord), self.theta)
-        marker = Marker()
-        id_d = {"cat": 1, "dog": 2, "elephant":3}
-        vis_pub = rospy.Publisher('marker_topic', Marker, queue_size=10)
+            angle = self.theta + (msg.thetaleft + msg.thetaright) / 2
+            
+            x_coord = self.x + dist * np.cos(angle) - thresh_dist * np.cos(angle)
+            y_coord = self.y + dist * np.sin(angle) - thresh_dist * np.sin(angle)
 
-        marker.header.frame_id = "map"
-        marker.header.stamp = rospy.Time()
+            self.animal_list[msg.name] = ((x_coord, y_coord), self.theta)
+            """
+            marker = Marker()
+            id_d = {"cat": 1, "dog": 2, "elephant":3}
+            vis_pub = rospy.Publisher('marker_topic', Marker, queue_size=10)
+ 
+            marker.header.frame_id = "map"
+            marker.header.stamp = rospy.Time()
 
-        # IMPORTANT: If you're creating multiple markers, 
-        #            each need to have a separate marker ID.
-        marker.id = id_d[msg.name]
+            # IMPORTANT: If you're creating multiple markers, 
+            #            each need to have a separate marker ID.
+            marker.id = id_d[msg.name]
 
-        marker.type = 2 # sphere
+            marker.type = 2 # sphere
 
-        marker.pose.position.x = x_coord
-        marker.pose.position.y = y_coord
-        marker.pose.position.z = 1
+            marker.pose.position.x = x_coord
+            marker.pose.position.y = y_coord
+            marker.pose.position.z = 1
 
-        marker.pose.orientation.x = 0.0
-        marker.pose.orientation.y = 0.0
-        marker.pose.orientation.z = 0.0
-        marker.pose.orientation.w = 1.0
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
 
-        marker.scale.x = 10
-        marker.scale.y = 10
-        marker.scale.z = 10
+            marker.scale.x = 10
+            marker.scale.y = 10
+            marker.scale.z = 10
 
-        marker.color.a = 1 # Don't forget to set the alpha!
-        marker.color.r = 50 *  marker.id
-        marker.color.g = 10 *  marker.id
-        marker.color.b = 100 *  marker.id
-         
-        vis_pub.publish(marker)
+            marker.color.a = 1 # Don't forget to set the alpha!
+            marker.color.r = 50 *  marker.id
+            marker.color.g = 10 *  marker.id
+            marker.color.b = 100 *  marker.id
+            
+            vis_pub.publish(marker) """
 
     def stop_sign_detected_callback(self, msg):
         """ callback for when the detector has found a stop sign. Note that
@@ -250,6 +256,7 @@ class Supervisor:
         """
         receives new map info and updates the map
         """
+        #print("got map")
         self.map_probs = msg.data
         
         # if we've received the map metadata and have a way to update it:
@@ -365,11 +372,13 @@ class Supervisor:
         if self.prev_mode != self.mode:
             rospy.loginfo("Current mode: %s", self.mode)
             self.prev_mode = self.mode
-
+        
+        global Mode
         ########## Code starts here ##########
         # TODO: Currently the state machine will just go to the pose without stopping
         #       at the stop sign.
         print(self.mode)
+        #print(Mode)
         if self.mode == Mode.EXPLORE:
             rate = rospy.Rate(100)
             while np.average(np.less(self.occupancy.probs,0)) >= 0.05:
@@ -451,24 +460,40 @@ class Supervisor:
             # self.list_to_rescue = set(["cat", "dog", "elephant"])
             # self.animal_list = {"cat": ((0.9, 2.1), 0), "dog": ((1.1, 2.1), 0), "elephant": ((1.7, 1), 0)}
             for animal_name in self.list_to_rescue:
-                if animal_name in self.animal_list:
-                    curr_animal = self.animal_list[animal_name]
-                    print("Going to:", curr_animal)
-                    self.x_g, self.y_g, self.theta_g = curr_animal[0][0], curr_animal[0][1], curr_animal[1]
-                    while not self.close_to(self.x_g, self.y_g, self.theta_g):
-                        self.nav_to_pose()
-                        rate.sleep()
-                    rate2 = rospy.Rate(1)
-                    rate2.sleep(1)
-                    rate2.sleep(1)
-                    rate2.sleep(1)
-                    print("Visited:", curr_animal)
+                if animal_name in self.animal_list: 
+                    if self.animal_list[animal_name] is not None:
+                        curr_animal = self.animal_list[animal_name]
+                        print("Going to:", curr_animal)
+                        self.x_g, self.y_g, self.theta_g = curr_animal[0][0], curr_animal[0][1], curr_animal[1]
+                        while not self.close_to(self.x_g, self.y_g, self.theta_g):
+                            self.nav_to_pose()
+                            rate.sleep()
+                        #rate2 = rospy.Rate(1)
+                        #rate2.sleep(1)
+                        #rate2.sleep(1)
+                        #rate2.sleep(1)
+                        print("SLEEPING")
+                        rate2 = rospy.Rate(0.2)
+                        rate2.sleep()
+                        print("Visited: ", curr_animal)
+                    else:
+                        print("Did not find ", animal_name, " in exploration")
+            self.mode = Mode.FINAL_RETURN
+
+        elif self.mode == Mode.FINAL_RETURN:
+            rate = rospy.Rate(10)
             self.x_g, self.y_g, self.theta_g = 3.15, 1.6, 0
             print("going home!")
+            self.list_to_rescue = set()
             while not self.close_to(self.x_g, self.y_g, self.theta_g):
                 self.nav_to_pose()
-                print("pos eps: ", self.params.pos_eps)
+                #print("pos eps: ", self.params.pos_eps)
                 rate.sleep()
+            self.mode = Mode.DONE
+
+        elif self.mode == Mode.DONE:
+            self.stay_idle()
+
             # spaced_input = input()
             # animal_inds = spaced_input.split(' ')
             # for ind in animal_inds:

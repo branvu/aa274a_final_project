@@ -28,7 +28,7 @@ PATH_TO_LABELS = os.path.join(
 # False will use a very simple color thresholding to detect stop signs only
 USE_PYTORCH = True
 # minimum score for positive detection
-MIN_SCORE = 0.5
+MIN_SCORE = 0.6
 
 
 def load_object_labels(filename):
@@ -297,7 +297,7 @@ class Detector:
                 object_msg.corners = [ymin, xmin, ymax, xmax]
                 self.object_publishers[cl].publish(object_msg)
                 
-                special = {"cat", "dog", "elephant"}
+                special = {"cat", "dog", "elephant", "bird", "giraffe"}
                 if object_msg.name in special:
                     # Publish meow woof or eeeeeeeeeeeeeeurrrrrrrrrr
                     pub = rospy.Publisher("/detector/sounds", String, queue_size=10)
@@ -306,6 +306,10 @@ class Detector:
                         pub.publish("meow")
                     elif object_msg.name == "dog":
                         pub.publish("woof")
+                    elif object_msg.name == "bird":
+                        pub.publish("chirp")
+                    elif object_msg.name == "elephant":
+                        pub.publish("baraag")
                     else:
                         pub.publish("eeeeeeeeeeuuuuuuuuuurrrrrrrrrrrrr")
                     animal_pub.publish(object_msg)

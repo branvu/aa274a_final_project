@@ -808,6 +808,33 @@
       <pose frame=''>2.61620523241 1.52400304801 0 0 0 1.57079632679</pose>
     </model>
 
+    <model name='wall_27'>
+      <static>1</static>
+      <link name='link'>
+        <collision name='collision'>
+          <geometry>
+            <box>
+              <size>0.5514 0.01 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name='visual'>
+          <geometry>
+            <box>
+              <size>0.5514 0.01 1</size>
+            </box>
+          </geometry>
+          <material>
+            <script>
+              <name>Gazebo/White</name>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+            </script>
+          </material>
+        </visual>
+      </link>
+      <pose frame=''>1.472 2.773 0 0 0 1.57079632679</pose>
+    </model>
+
 
    
 <model name='elephant'>
@@ -816,7 +843,7 @@
           <geometry>
             <mesh>
               <uri>model://elephant/meshes/elephant.dae</uri>
-              <scale>.14 .12 .17</scale>
+              <scale>.25 .12 .25</scale>
             </mesh>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -840,7 +867,7 @@
           <geometry>
             <mesh>
               <uri>model://elephant/meshes/elephant.dae</uri>
-              <scale>.14 .12 .17</scale>
+              <scale>.25 .12 .25</scale>
             </mesh>
           </geometry>
           <material>
@@ -866,7 +893,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=''>1.65 0.67 0.0 0.0 0.0 3.14159</pose>
+      <pose frame=''>1.62 0.76 0.0 0.0 0.0 3.14159</pose>
     </model>
     
 
@@ -927,7 +954,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=''>0.86 2.46 0.0 0.0 0.0 3.14159</pose>
+      <pose frame=''>0.8 2.308 0.0 0.0 0.0 3.14159</pose>
     </model>
 <model name='sheep'>
       <link name='link'>
@@ -1101,7 +1128,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=''>1.23 2.29 0 0.0 0.0 2.70</pose>
+      <pose frame=''>1.0 2.308 0 0.0 0.0 3.14159</pose>
     </model>
     
 

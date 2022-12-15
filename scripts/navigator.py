@@ -81,7 +81,7 @@ class Navigator:
         )
 
         # threshold at which navigator switches from trajectory to pose control
-        self.near_thresh = 0.11 # 0.2 default
+        self.near_thresh = 0.1 # 0.2 default
         self.at_thresh = 0.005
         self.at_thresh_theta = 0.05
 
@@ -383,7 +383,8 @@ class Navigator:
         if len(planned_path) < 4:
             rospy.loginfo("Path too short to track")
             self.pose_controller.load_goal(self.x_g, self.y_g, self.theta_g)
-            self.switch_mode(Mode.PARK)
+            #self.switch_mode(Mode.PARK)
+            self.switch_mode(Mode.IDLE)
             return
 
         # Smooth and generate a trajectory

@@ -45,8 +45,8 @@ class SupervisorParams:
         self.mapping = rospy.get_param("map")
 
         # Threshold at which we consider the robot at a location
-        self.pos_eps = rospy.get_param("~pos_eps", 0.15) # 0.1, works without pose at .4
-        self.theta_eps = rospy.get_param("~theta_eps", 3) # 0.3
+        self.pos_eps = rospy.get_param("~pos_eps", 0.27) # 0.1, works without pose at .4
+        self.theta_eps = rospy.get_param("~theta_eps", 6.28) # 0.3
 
         # Time to stop at a stop sign
         self.stop_time = rospy.get_param("~stop_time", 2.)
@@ -473,6 +473,13 @@ class Supervisor:
                         #rate2.sleep(1)
                         #rate2.sleep(1)
                         print("SLEEPING")
+                        rate3 = rospy.Rate(1)
+                        for i in range(5):
+                            self.x_g, self.y_g, self.theta_g = self.x, self.y, self.theta
+                            self.nav_to_pose()
+                            rate3.sleep()
+                            self.stay_idle()
+                            
                         rate2 = rospy.Rate(0.2)
                         rate2.sleep()
                         print("Visited: ", curr_animal)
@@ -492,7 +499,13 @@ class Supervisor:
             self.mode = Mode.DONE
 
         elif self.mode == Mode.DONE:
-            self.stay_idle()
+            rate = rospy.Rate(1)
+            for i in range(5):
+                self.x_g, self.y_g, self.theta_g = self.x, self.y, self.theta
+                self.nav_to_pose()
+                rate.sleep()
+                self.stay_idle()
+            return 0
 
             # spaced_input = input()
             # animal_inds = spaced_input.split(' ')
